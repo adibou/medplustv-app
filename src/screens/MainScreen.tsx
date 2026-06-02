@@ -139,20 +139,14 @@ export default function MainScreen() {
         );
     }
 
-    const currentItem = playlist[currentIndex];
-
     return (
         <View style={styles.container}>
             <VideoView
-                style={styles.video}
+                style={styles.videoFullscreen}
                 player={player}
-                allowsFullscreen={false}
                 nativeControls={false}
             />
             <View style={styles.overlay}>
-                <Text style={styles.videoTitle} numberOfLines={1}>
-                    {currentItem?.item.title}
-                </Text>
                 <View style={styles.controlsRow}>
                     <TVButton label="⏮" onPress={handlePrev} onFocusChange={handleFocusChange} />
                     <TVButton
@@ -163,14 +157,11 @@ export default function MainScreen() {
                     />
                     <TVButton label="⏭" onPress={handleNext} onFocusChange={handleFocusChange} />
                     <TVButton
-                        label="☰  Menu"
+                        label="☰"
                         onPress={() => navigation.navigate('Menu')}
                         onFocusChange={handleFocusChange}
                     />
                 </View>
-                <Text style={styles.counter}>
-                    {currentIndex + 1} / {playlist.length}
-                </Text>
             </View>
         </View>
     );
@@ -222,37 +213,36 @@ const styles = StyleSheet.create({
         textAlign: 'center',
         lineHeight: 48,
     },
-    video: {
-        flex: 1,
+    videoFullscreen: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
     },
     overlay: {
-        backgroundColor: 'rgba(0,0,0,0.7)',
-        paddingHorizontal: 48,
-        paddingVertical: 20,
-        gap: 12,
-    },
-    videoTitle: {
-        fontSize: 22,
-        fontWeight: '600',
-        color: '#fff',
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        backgroundColor: 'rgba(0,0,0,0.5)',
+        paddingHorizontal: 32,
+        paddingVertical: 14,
     },
     controlsRow: {
         flexDirection: 'row',
-        gap: 16,
+        gap: 12,
         alignItems: 'center',
-    },
-    counter: {
-        fontSize: 14,
-        color: '#9a9a9a',
+        justifyContent: 'center',
     },
     button: {
         backgroundColor: '#16213e',
-        paddingHorizontal: 28,
-        paddingVertical: 14,
-        borderRadius: 8,
+        paddingHorizontal: 18,
+        paddingVertical: 8,
+        borderRadius: 6,
         borderWidth: 2,
         borderColor: '#0f3460',
-        minWidth: 80,
+        minWidth: 50,
         alignItems: 'center',
     },
     buttonFocused: {
@@ -262,7 +252,7 @@ const styles = StyleSheet.create({
     },
     buttonText: {
         color: '#fff',
-        fontSize: 20,
+        fontSize: 16,
         fontWeight: '600',
     },
 });

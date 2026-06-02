@@ -27,10 +27,11 @@ export default function PairingScreen() {
 
     return (
         <View style={styles.container}>
+        {/*
             <Text>Pas de token détecté sur cet appareil. On démarre la procédure d'association.</Text>
             <Text>API url : {API_BASE_URL}</Text>
             <Text>API key : {apiKey}</Text>
-            <Text>{welcome}</Text>
+            <Text>{welcome}</Text>*/}
 
 
             {(phase === 'idle' || phase === 'requesting') && (

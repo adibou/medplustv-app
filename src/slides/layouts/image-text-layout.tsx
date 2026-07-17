@@ -21,9 +21,9 @@ export default function ImageTextLayout({ content }: Props) {
 
 const styles = StyleSheet.create({
     container: {
+        flex: 1,
         flexDirection: 'row',
         alignItems: 'stretch',
-        height: '100%',
     },
     image: {
         width: '50%',

@@ -49,10 +49,10 @@ export default function ScheduleSimpleLayout({ content }: Props) {
 
 const styles = StyleSheet.create({
     container: {
+        flex: 1,
         flexDirection: 'row',
         gap: 72,
         alignItems: 'center',
-        height: '100%',
     },
     leftCol: {
         width: '44%',

@@ -4,3 +4,10 @@ declare module '*.mp4' {
     const asset: number;
     export default asset;
 }
+
+// Idem pour les images bundlées — Metro renvoie une référence utilisable comme
+// source d'un composant `Image`.
+declare module '*.png' {
+    const asset: number;
+    export default asset;
+}

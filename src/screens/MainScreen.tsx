@@ -174,14 +174,18 @@ export default function MainScreen() {
         }
         stopDefaultRecheck();
         clearSlideTimer();
-        setDisplayedSlide(null);
         isPlayingDefaultRef.current = false;
         player.loop = false;
+        // On NE cache PAS la slide (si elle est visible) avant le replaceAsync :
+        // sinon on verrait l'ancienne vidéo (encore chargée dans le player, juste
+        // pausée pendant la slide) le temps que la nouvelle source charge. La slide
+        // sert de cover pendant tout le swap.
         try {
             await player.replaceAsync(entry.uri);
         } catch {
             return false;
         }
+        setDisplayedSlide(null);
         if (!pausedRef.current) player.play();
         lastPlayedRef.current = { kind: 'video', id: entry.videoId };
         logItemStart(entry.item);
@@ -213,11 +217,13 @@ export default function MainScreen() {
     // sortir dès qu'un item de playlist devient jouable.
     async function playDefault() {
         clearSlideTimer();
-        setDisplayedSlide(null);
         isPlayingDefaultRef.current = true;
         lastPlayedRef.current = null;
         player.loop = true;
+        // Slide gardée visible jusqu'à ce que la vidéo par défaut soit chargée,
+        // même logique que verifyAndPlayVideo : évite le flash de l'ancienne source.
         await player.replaceAsync(defaultVideoAsset);
+        setDisplayedSlide(null);
         if (!pausedRef.current) player.play();
         startDefaultRecheck();
     }

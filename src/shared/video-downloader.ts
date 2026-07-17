@@ -96,7 +96,7 @@ export async function syncVideos(
         }
     }
     await setVideoIndex(index);
-    const estimatedBytes = toDownload.reduce((sum, v) => sum + v.size, 0);
+    const estimatedBytes = toDownload.reduce((sum, v) => sum + Number(v.size), 0);
     const [freeBytesBefore, totalCapacityBytes] = await Promise.all([
         FileSystem.getFreeDiskStorageAsync(),
         FileSystem.getTotalDiskCapacityAsync(),
@@ -180,7 +180,7 @@ export async function syncVideos(
         // Re-check espace au ras du download : le disque a pu se remplir entre-temps
         // (autre app) ou notre estimation est optimiste. Si insuffisant, on stoppe
         // net — les items suivants seraient dans la même situation.
-        if (video.size + SAFETY_MARGIN_BYTES > freeBefore) {
+        if (Number(video.size) + SAFETY_MARGIN_BYTES > freeBefore) {
             const remaining = toDownload.length - i;
             const reason = 'insufficient-space-mid-sync';
             log('sync.aborted', {

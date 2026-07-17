@@ -104,6 +104,12 @@ export default function MainScreen() {
     // détecte ici, on marque `notfound` + log, et l'appelant passera au suivant.
     async function verifyAndPlay(entry: PlayableItem): Promise<boolean> {
         const info = await FileSystem.getInfoAsync(entry.uri);
+        logRef.current('video.debug.stat', {
+            videoId: entry.videoId,
+            uri: entry.uri,
+            exists: info.exists,
+            size: info.exists && !info.isDirectory ? info.size : null,
+        });
         if (!info.exists || info.isDirectory || info.size === 0) {
             await markNotFound(entry.videoId, entry.uri);
             return false;
@@ -111,9 +117,13 @@ export default function MainScreen() {
         stopDefaultRecheck();
         isPlayingDefaultRef.current = false;
         player.loop = false;
-        // `replaceAsync` : charge l'asset hors du thread UI (sinon warning iOS +
-        // deprecation à venir de la variante sync).
-        await player.replaceAsync(entry.uri);
+        try {
+            await player.replaceAsync(entry.uri);
+            logRef.current('video.debug.loaded', { videoId: entry.videoId });
+        } catch (e: any) {
+            logRef.current('video.debug.load.error', { videoId: entry.videoId, message: e?.message });
+            return false;
+        }
         if (!pausedRef.current) player.play();
         lastPlayedVideoIdRef.current = entry.videoId;
         logItemStart(entry.item);

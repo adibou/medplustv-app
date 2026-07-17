@@ -49,3 +49,10 @@ This project contains placeholder images for the Android TV banner and for Apple
 - To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
 - If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
 - Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+
+
+
+truc bizarre fait : 
+kill le process et cold start de l'emulateur avec un shader differente !!! ???
+Get-Process | Where-Object { $_.ProcessName -match "emulator|qemu" } | Stop-Process -Force
+& "$env:LOCALAPPDATA\Android\Sdk\emulator\emulator.exe" -avd Television_1080p_API_36 -gpu swiftshader_indirect

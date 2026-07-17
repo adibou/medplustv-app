@@ -3,10 +3,12 @@ import { View, Text, StyleSheet, ActivityIndicator, useTVEventHandler } from 're
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL, apiStatus, dissociateDisplay, getDisplayLoop } from '../../api/endpoint';
-import { storeLoopItems, getVideoIndex } from '../../shared/storage';
+import { storePlaylist, getVideoIndex } from '../../shared/storage';
 import { syncVideos } from '../../shared/video-downloader';
-import type { DownloadProgress } from '../../shared/video-downloader';
+import type { DownloadProgress, SyncReport } from '../../shared/video-downloader';
+import { createLogger, formatBytes } from '../../shared/logger';
 import MenuItem from './components/MenuItem';
+import AppBackground from '../../components/AppBackground';
 
 export default function MenuScreen() {
     const navigation = useNavigation();
@@ -39,7 +41,7 @@ export default function MenuScreen() {
         setApiResult(null);
         try {
             const res = await apiStatus();
-            setApiResult(`API OK: ${JSON.stringify(res)}`);
+            setApiResult(`API OK: ${res.message}`);
         } catch (e: any) {
             setApiResult(`Erreur: ${e.message}`);
         } finally {
@@ -52,19 +54,36 @@ export default function MenuScreen() {
         setSyncing(true);
         setSyncResult(null);
         setDownloadProgress(null);
+        const log = createLogger(apiKey);
         try {
             const items = await getDisplayLoop(apiKey);
-            await storeLoopItems(items);
-            const index = await syncVideos(items, apiKey, (p) => setDownloadProgress({ ...p }));
-            const count = Object.keys(index).length;
-            setLocalCount(count);
-            setSyncResult(`${count} vidéo${count !== 1 ? 's' : ''} prête${count !== 1 ? 's' : ''}`);
+            await storePlaylist(items);
+            const report: SyncReport = await syncVideos(items, apiKey, log, (p) => setDownloadProgress({ ...p }));
+            const idx = await getVideoIndex();
+            setLocalCount(Object.keys(idx).length);
+            setSyncResult(formatSyncReport(report));
         } catch (e: any) {
+            log('sync.error', { message: e?.message });
             setSyncResult(`Erreur : ${e.message}`);
         } finally {
             setSyncing(false);
             setDownloadProgress(null);
         }
+    }
+
+    function isSyncFailure(msg: string): boolean {
+        return msg.startsWith('Erreur') || msg.startsWith('⚠');
+    }
+
+    function formatSyncReport(r: SyncReport): string {
+        const parts: string[] = [];
+        if (r.aborted) parts.push(`⚠ interrompu (${r.abortReason ?? 'raison inconnue'})`);
+        parts.push(`${r.succeeded} OK`);
+        if (r.failed > 0) parts.push(`${r.failed} échec${r.failed > 1 ? 's' : ''}`);
+        if (r.skipped > 0) parts.push(`${r.skipped} non tenté${r.skipped > 1 ? 's' : ''}`);
+        parts.push(`↓ ${formatBytes(r.totalBytesDownloaded)}`);
+        parts.push(`disque libre : ${formatBytes(r.freeBytesAfter)}`);
+        return parts.join(' • ');
     }
 
     async function handleDissocier() {
@@ -77,7 +96,7 @@ export default function MenuScreen() {
     }
 
     return (
-        <View style={styles.container}>
+        <AppBackground style={styles.container}>
             <Text style={styles.title}>Menu</Text>
 
             <Text style={styles.sectionTitle}>API {API_BASE_URL}</Text>
@@ -100,14 +119,14 @@ export default function MenuScreen() {
                 onFocusChange={handleFocusChange}
                 disabled={syncing}
             />
-            {syncing && !downloadProgress && <ActivityIndicator color="#fff" style={styles.loader} />}
+            {syncing && !downloadProgress && <ActivityIndicator color="#0f3460" style={styles.loader} />}
             {syncing && downloadProgress && (
                 <Text style={styles.progress}>
                     Téléchargé {downloadProgress.downloaded}/{downloadProgress.total}
                 </Text>
             )}
             {!syncing && syncResult && (
-                <Text style={[styles.apiResult, syncResult.startsWith('Erreur') ? styles.err : styles.ok]}>
+                <Text style={[styles.apiResult, isSyncFailure(syncResult) ? styles.err : styles.ok]}>
                     {syncResult}
                 </Text>
             )}
@@ -129,26 +148,24 @@ export default function MenuScreen() {
                 onPress={() => navigation.goBack()}
                 onFocusChange={handleFocusChange}
             />
-        </View>
+        </AppBackground>
     );
 }
 
 const styles = StyleSheet.create({
     container: {
-        flex: 1,
-        backgroundColor: '#1a1a2e',
         padding: 60,
         gap: 28,
     },
     title: {
         fontSize: 42,
         fontWeight: 'bold',
-        color: '#fff',
+        color: '#0f3460',
         marginBottom: 8,
     },
     sectionTitle: {
         fontSize: 16,
-        color: '#9a9a9a',
+        color: '#5a6b85',
         textTransform: 'uppercase',
         letterSpacing: 1,
     },
@@ -156,9 +173,9 @@ const styles = StyleSheet.create({
         fontSize: 16,
         marginTop: 6,
     },
-    ok: { color: '#8fe08f' },
-    err: { color: '#ffb0b0' },
+    ok: { color: '#2e7d32' },
+    err: { color: '#c62828' },
     loader: { marginTop: 8 },
-    localCount: { fontSize: 14, color: '#9a9a9a', marginTop: -12 },
-    progress: { fontSize: 18, color: '#fff', fontVariant: ['tabular-nums'] },
+    localCount: { fontSize: 14, color: '#5a6b85', marginTop: -12 },
+    progress: { fontSize: 18, color: '#0f3460', fontVariant: ['tabular-nums'] },
 });

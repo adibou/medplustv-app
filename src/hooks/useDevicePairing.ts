@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { AppState } from 'react-native';
 import { requestPairingCode, pollPairingStatus } from '../api/endpoint';
 
-type PairingPhase = 'idle' | 'requesting' | 'displaying' | 'paired' | 'expired' | 'error';
+type PairingPhase = 'idle' | 'requesting' | 'displaying' | 'confirmed' | 'expired' | 'error';
 
 const POLL_INTERVAL_MS = 5000;
 
@@ -23,7 +23,7 @@ export function useDevicePairing(): PairingState {
     const [error, setError] = useState<string | null>(null);
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const isMountedRef = useRef(true);
-    const codeRef = useRef<string | null>(null);
+    const sessionTokenRef = useRef<string | null>(null);
 
     const cleanup = useCallback(() => {
         if (intervalRef.current) {
@@ -32,17 +32,17 @@ export function useDevicePairing(): PairingState {
         }
     }, []);
 
-    const startPolling = useCallback((pairingCode: string) => {
+    const startPolling = useCallback((sessionToken: string) => {
         cleanup();
         intervalRef.current = setInterval(async () => {
             try {
-                const result = await pollPairingStatus(pairingCode);
+                const result = await pollPairingStatus(sessionToken);
                 if (!isMountedRef.current) return;
 
-                if (result.status === 'paired') {
+                if (result.status === 'confirmed') {
                     cleanup();
                     setApiKey(result.apiKey);
-                    setPhase('paired');
+                    setPhase('confirmed');
                 } else if (result.status === 'expired') {
                     cleanup();
                     setPhase('expired');
@@ -65,11 +65,11 @@ export function useDevicePairing(): PairingState {
             if (!isMountedRef.current) return;
 
             setCode(result.code);
-            codeRef.current = result.code;
+            sessionTokenRef.current = result.sessionToken;
             setExpiresAt(new Date(result.expiresAt));
             setPhase('displaying');
 
-            startPolling(result.code);
+            startPolling(result.sessionToken);
         } catch (e: any) {
             if (!isMountedRef.current) return;
             setError(e.message ?? 'Impossible de générer le code');
@@ -90,8 +90,8 @@ export function useDevicePairing(): PairingState {
     // Pause/reprise du polling selon l'état de l'app
     useEffect(() => {
         const sub = AppState.addEventListener('change', (state) => {
-            if (state === 'active' && phase === 'displaying' && !intervalRef.current && codeRef.current) {
-                startPolling(codeRef.current);
+            if (state === 'active' && phase === 'displaying' && !intervalRef.current && sessionTokenRef.current) {
+                startPolling(sessionTokenRef.current);
             } else if (state !== 'active') {
                 cleanup();
             }

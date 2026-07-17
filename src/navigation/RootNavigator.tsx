@@ -4,11 +4,13 @@ import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import PairingScreen from '../screens/PairingScreen';
+import PostPairingScreen from '../screens/PostPairingScreen';
 import MainScreen from '../screens/MainScreen';
 import MenuScreen from '../screens/menu/MenuScreen';
 
 export type RootStackParamList = {
     Pairing: undefined;
+    PostPairing: undefined;
     Main: undefined;
     Menu: undefined;
 };
@@ -29,9 +31,13 @@ export default function RootNavigator() {
     return (
         <NavigationContainer>
             <Stack.Navigator id="Root" screenOptions={{ headerShown: false }}>
-                {status === 'unauthenticated' ? (
+                {status === 'unauthenticated' && (
                     <Stack.Screen name="Pairing" component={PairingScreen} />
-                ) : (
+                )}
+                {status === 'onboarding' && (
+                    <Stack.Screen name="PostPairing" component={PostPairingScreen} />
+                )}
+                {status === 'authenticated' && (
                     <>
                         <Stack.Screen name="Main" component={MainScreen} />
                         <Stack.Screen name="Menu" component={MenuScreen} />

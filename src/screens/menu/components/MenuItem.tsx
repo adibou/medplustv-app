@@ -33,7 +33,7 @@ export default function MenuItem({
                 setFocused(false);
                 onFocusChange(false, onPress);
             }}
-            underlayColor="#2d2d2d"
+            underlayColor="rgba(15, 52, 96, 0.12)"
             style={[styles.item, focused && styles.itemFocused, disabled && styles.itemDisabled]}
         >
             <Text style={[styles.label, danger && styles.labelDanger]}>{label}</Text>
@@ -49,17 +49,17 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
     },
     itemFocused: {
-        backgroundColor: '#2d2d2d',
+        backgroundColor: 'rgba(15, 52, 96, 0.12)',
     },
     itemDisabled: {
         opacity: 0.5,
     },
     label: {
-        color: '#fff',
+        color: '#0f3460',
         fontSize: 12,
         fontWeight: '600',
     },
     labelDanger: {
-        color: '#ff9f9f',
+        color: '#c62828',
     },
 });

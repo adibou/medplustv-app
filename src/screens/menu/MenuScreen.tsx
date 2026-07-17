@@ -2,9 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ActivityIndicator, useTVEventHandler } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../contexts/AuthContext';
-import { API_BASE_URL, apiStatus, dissociateDisplay, getDisplayLoop } from '../../api/endpoint';
-import { storePlaylist, getVideoIndex } from '../../shared/storage';
-import { syncVideos } from '../../shared/video-downloader';
+import { API_BASE_URL, apiStatus, dissociateDisplay } from '../../api/endpoint';
+import { getVideoIndex, getLastSyncAt } from '../../shared/storage';
+import { runFullSync } from '../../shared/sync-manager';
 import type { DownloadProgress, SyncReport } from '../../shared/video-downloader';
 import { createLogger, formatBytes } from '../../shared/logger';
 import MenuItem from './components/MenuItem';
@@ -19,11 +19,13 @@ export default function MenuScreen() {
     const [syncResult, setSyncResult] = useState<string | null>(null);
     const [localCount, setLocalCount] = useState<number | null>(null);
     const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+    const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
     const focusedAction = useRef<(() => void) | null>(null);
 
     useEffect(() => {
         getVideoIndex().then(idx => setLocalCount(Object.keys(idx).length));
+        getLastSyncAt().then(setLastSyncAt);
     }, []);
 
     // useTVEventHandler((evt) => {
@@ -56,12 +58,15 @@ export default function MenuScreen() {
         setDownloadProgress(null);
         const log = createLogger(apiKey);
         try {
-            const items = await getDisplayLoop(apiKey);
-            await storePlaylist(items);
-            const report: SyncReport = await syncVideos(items, apiKey, log, (p) => setDownloadProgress({ ...p }));
-            const idx = await getVideoIndex();
-            setLocalCount(Object.keys(idx).length);
-            setSyncResult(formatSyncReport(report));
+            const report: SyncReport | null = await runFullSync(apiKey, log, (p) => setDownloadProgress({ ...p }));
+            if (report === null) {
+                setSyncResult('⚠ Sync déjà en cours');
+            } else {
+                const idx = await getVideoIndex();
+                setLocalCount(Object.keys(idx).length);
+                setSyncResult(formatSyncReport(report));
+            }
+            setLastSyncAt(await getLastSyncAt());
         } catch (e: any) {
             log('sync.error', { message: e?.message });
             setSyncResult(`Erreur : ${e.message}`);
@@ -73,6 +78,14 @@ export default function MenuScreen() {
 
     function isSyncFailure(msg: string): boolean {
         return msg.startsWith('Erreur') || msg.startsWith('⚠');
+    }
+
+    function formatLastSyncAt(ts: number | null): string {
+        if (ts === null) return 'Dernière synchro : jamais';
+        const d = new Date(ts);
+        const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+        return `Dernière synchro : ${date} à ${time}`;
     }
 
     function formatSyncReport(r: SyncReport): string {
@@ -135,6 +148,7 @@ export default function MenuScreen() {
                     {localCount} vidéo{localCount !== 1 ? 's' : ''} en local
                 </Text>
             )}
+            <Text style={styles.lastSync}>{formatLastSyncAt(lastSyncAt)}</Text>
 
             <MenuItem
                 label="Dissocier cet écran"
@@ -177,5 +191,6 @@ const styles = StyleSheet.create({
     err: { color: '#c62828' },
     loader: { marginTop: 8 },
     localCount: { fontSize: 14, color: '#5a6b85', marginTop: -12 },
+    lastSync: { fontSize: 14, color: '#5a6b85', marginTop: -20 },
     progress: { fontSize: 18, color: '#0f3460', fontVariant: ['tabular-nums'] },
 });

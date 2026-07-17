@@ -3,6 +3,7 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
+import { useAutoSync } from '../hooks/useAutoSync';
 import PairingScreen from '../screens/PairingScreen';
 import PostPairingScreen from '../screens/PostPairingScreen';
 import MainScreen from '../screens/MainScreen';
@@ -18,7 +19,8 @@ export type RootStackParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function RootNavigator() {
-    const { status } = useAuth();
+    const { status, apiKey } = useAuth();
+    useAutoSync(status === 'authenticated' ? apiKey : null);
 
     if (status === 'loading') {
         return (

@@ -59,11 +59,19 @@ export async function dissociateDisplay(apiKey: string): Promise<void> {
 
 // ── Logs (auth via x-api-key, side-effect fire-and-forget) ─────────────────────
 // Le shape de `data` dépend du slug (contrat côté app). Le back stocke tel quel.
-export async function sendDisplayLog(apiKey: string, slug: string, data: Record<string, unknown>): Promise<void> {
+// `scope`/`scopeId` optionnels : quand l'event vise une entité identifiable
+// (vidéo, slide), on les envoie pour que le back les stocke dans des colonnes
+// indexées → stats agrégées performantes.
+export async function sendDisplayLog(
+    apiKey: string,
+    slug: string,
+    data: Record<string, unknown>,
+    scope?: { scope: 'video' | 'slide'; scopeId: number },
+): Promise<void> {
     const res = await fetch(`${API_BASE_URL}/display-logs/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
-        body: JSON.stringify({ slug, data }),
+        body: JSON.stringify({ slug, data, ...(scope ?? {}) }),
     });
     if (!res.ok) throw new Error(`sendDisplayLog(${slug}) failed: ${res.status}`);
 }
@@ -74,4 +82,10 @@ export async function sendDisplayLog(apiKey: string, slug: string, data: Record<
 // sans droits sur la vidéo).
 export function videoFileUrl(videoId: number): string {
     return `${API_BASE_URL}/videos/file/${videoId}/file`;
+}
+
+// ── Fichier asset slide (URL absolue, utilisée par le downloader) ──────────────
+// Le back sert les assets en public (cache 300s) — pas d'auth requise.
+export function slideAssetFileUrl(assetId: number): string {
+    return `${API_BASE_URL}/slides/assets/${assetId}/file`;
 }

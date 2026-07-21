@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import { formatParisTime } from './paris-time';
 
 type SlideHeaderProps = {
     title: string;
@@ -15,10 +16,7 @@ export default function SlideHeader({ title, textColor }: SlideHeaderProps) {
         return () => clearInterval(timer);
     }, []);
 
-    const clockText = useMemo(
-        () => now.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        [now],
-    );
+    const clockText = useMemo(() => formatParisTime(now), [now]);
 
     return (
         <View style={styles.header}>

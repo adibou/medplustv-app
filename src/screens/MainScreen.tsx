@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, TouchableHighlight, useTVEventHandler } from 'react-native';
+import { View, Image, StyleSheet, TouchableHighlight, useTVEventHandler } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
 import * as FileSystem from 'expo-file-system/legacy';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
@@ -19,6 +21,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { createLogger } from '../shared/logger';
 import SlideView from '../slides/slide-view';
 import defaultVideoAsset from '../../assets/video.mp4';
+import logoAsset from '../../assets/images/logo.png';
 
 type Nav = NativeStackNavigationProp<RootStackParamList, 'Main'>;
 
@@ -32,6 +35,9 @@ type PlayableItem = PlayableVideo | PlayableSlide;
 // Fréquence de re-check quand on tourne sur la vidéo par défaut : dès qu'une
 // première vidéo de playlist devient `ready`, on bascule dessus au tour suivant.
 const DEFAULT_RECHECK_MS = 15_000;
+
+// Durée d'affichage de la barre de contrôles après le dernier appui télécommande.
+const OVERLAY_AUTO_HIDE_MS = 5_000;
 
 function isAssetRef(v: SlideContentValue): v is SlideAssetRef {
     return typeof v === 'object' && v !== null && v.kind === 'asset';
@@ -65,6 +71,7 @@ export default function MainScreen() {
 
     const [paused, setPaused] = useState(false);
     const [muted, setMuted] = useState(false);
+    const [overlayVisible, setOverlayVisible] = useState(false);
     // Slide en cours d'affichage (null quand on est sur une vidéo ou sur le default).
     const [currentSlide, setCurrentSlide] = useState<Slide | null>(null);
     // Snapshot d'asset index utilisé pour résoudre les URIs de la slide affichée.
@@ -86,6 +93,9 @@ export default function MainScreen() {
     // Miroir de `currentSlide` en ref — évite de dépendre de l'état React pour
     // le guard du listener statusChange (qui capture l'état de son render).
     const currentSlideRef = useRef<Slide | null>(null);
+    // Timer d'auto-hide de la barre de contrôles.
+    const overlayTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const overlayVisibleRef = useRef(false);
 
     const log = useMemo(() => createLogger(apiKey), [apiKey]);
     const logRef = useRef(log);
@@ -95,8 +105,66 @@ export default function MainScreen() {
         p.loop = false;
     });
 
+    // Anti-doublon "select" : sur émulateur (et certaines TV), l'onPress natif du
+    // bouton ET le fallback `useTVEventHandler('select')` fire tous les deux → l'action
+    // se déclenche 2 fois. On garde un verrou court : la première invocation passe,
+    // les suivantes dans la fenêtre sont ignorées. Le fallback reste utile pour les
+    // remotes qui ne mappent pas `select` sur `onPress`.
+    const actionLockRef = useRef(0);
+    function runAction(fn: () => void) {
+        const now = Date.now();
+        if (now - actionLockRef.current < 300) return;
+        actionLockRef.current = now;
+        fn();
+    }
+
+    function clearOverlayTimer() {
+        if (overlayTimeoutRef.current) {
+            clearTimeout(overlayTimeoutRef.current);
+            overlayTimeoutRef.current = null;
+        }
+    }
+
+    function scheduleOverlayHide() {
+        clearOverlayTimer();
+        overlayTimeoutRef.current = setTimeout(() => {
+            overlayTimeoutRef.current = null;
+            overlayVisibleRef.current = false;
+            setOverlayVisible(false);
+        }, OVERLAY_AUTO_HIDE_MS);
+    }
+
+    function showOverlay() {
+        if (!overlayVisibleRef.current) {
+            overlayVisibleRef.current = true;
+            setOverlayVisible(true);
+        }
+        scheduleOverlayHide();
+    }
+
+    function hideOverlay() {
+        clearOverlayTimer();
+        overlayVisibleRef.current = false;
+        setOverlayVisible(false);
+    }
+
     useTVEventHandler((evt) => {
+        if (!evt.eventType) return;
+        // Premier appui après auto-hide : on ne fait qu'afficher la barre —
+        // aucun bouton n'était focus, donc pas d'action à déclencher.
+        if (!overlayVisibleRef.current) {
+            showOverlay();
+            return;
+        }
+        // Barre visible + flèche haut : referme la barre.
+        if (evt.eventType === 'up') {
+            hideOverlay();
+            return;
+        }
+        showOverlay();
         if (evt.eventType === 'select' && focusedAction.current) {
+            // focusedAction est déjà wrappé par runAction côté parent : si l'onPress
+            // natif a fire juste avant, l'anti-rebond ignorera cet appel.
             focusedAction.current();
         }
     });
@@ -308,6 +376,7 @@ export default function MainScreen() {
         return () => {
             stopDefaultRecheck();
             clearSlideTimer();
+            clearOverlayTimer();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []));
@@ -330,6 +399,7 @@ export default function MainScreen() {
     useEffect(() => () => {
         stopDefaultRecheck();
         clearSlideTimer();
+        clearOverlayTimer();
     }, []);
 
     // Charge la préférence mute persistée au mount (indépendant du player pour
@@ -420,39 +490,72 @@ export default function MainScreen() {
                     <SlideView slide={currentSlide} resolveAsset={resolveAsset} />
                 </View>
             )}
-            <View style={styles.overlay}>
-                <View style={styles.controlsRow}>
-                    <TVButton label="⏮" onPress={handlePrev} onFocusChange={handleFocusChange} />
-                    <TVButton
-                        label={paused ? '▶' : '⏸'}
-                        onPress={handlePlayPause}
-                        onFocusChange={handleFocusChange}
-                        hasTVPreferredFocus
+            {/* Capteur focus invisible : sans élément focusable à l'écran, la
+                TV ne route pas les events DPAD vers JS et `useTVEventHandler`
+                ne fire pas. Ce catcher garde le focus quand la barre est cachée
+                pour que le premier appui télécommande soit toujours capté. */}
+            {!overlayVisible && (
+                <TouchableHighlight
+                    style={styles.focusCatcher}
+                    hasTVPreferredFocus
+                    onPress={showOverlay}
+                    underlayColor="transparent"
+                >
+                    <View style={styles.focusCatcher} />
+                </TouchableHighlight>
+            )}
+            {overlayVisible && (
+                <View style={styles.overlay}>
+                    <LinearGradient
+                        colors={['#f2f4f8', '#dbe6ff']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={StyleSheet.absoluteFill}
                     />
-                    <TVButton label="⏭" onPress={handleNext} onFocusChange={handleFocusChange} />
-                    <TVButton
-                        label={muted ? '🔇' : '🔊'}
-                        onPress={handleMute}
-                        onFocusChange={handleFocusChange}
-                    />
-                    <TVButton
-                        label="☰"
-                        onPress={() => navigation.navigate('Menu')}
-                        onFocusChange={handleFocusChange}
+                    <View style={styles.overlayRow}>
+                        <Image source={logoAsset} style={styles.logo} resizeMode="contain" />
+                        <View style={styles.controlsRow}>
+                            <TVButton icon="play-skip-back" onPress={() => runAction(handlePrev)} onFocusChange={handleFocusChange} />
+                            <TVButton
+                                icon={paused ? 'play' : 'pause'}
+                                onPress={() => runAction(handlePlayPause)}
+                                onFocusChange={handleFocusChange}
+                                hasTVPreferredFocus
+                            />
+                            <TVButton icon="play-skip-forward" onPress={() => runAction(handleNext)} onFocusChange={handleFocusChange} />
+                            <TVButton
+                                icon={muted ? 'volume-mute' : 'volume-high'}
+                                onPress={() => runAction(handleMute)}
+                                onFocusChange={handleFocusChange}
+                            />
+                            <TVButton
+                                icon="ellipsis-horizontal"
+                                onPress={() => runAction(() => navigation.navigate('Menu'))}
+                                onFocusChange={handleFocusChange}
+                            />
+                        </View>
+                    </View>
+                    <LinearGradient
+                        colors={['#0f3460', '#4CAF50']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={styles.overlayBottomBar}
                     />
                 </View>
-            </View>
+            )}
         </View>
     );
 }
 
+type IoniconName = React.ComponentProps<typeof Ionicons>['name'];
+
 function TVButton({
-    label,
+    icon,
     onPress,
     onFocusChange,
     hasTVPreferredFocus = false,
 }: {
-    label: string;
+    icon: IoniconName;
     onPress: () => void;
     onFocusChange: (focused: boolean, action: () => void) => void;
     hasTVPreferredFocus?: boolean;
@@ -468,7 +571,7 @@ function TVButton({
             underlayColor="#0f3460"
             style={[styles.button, focused && styles.buttonFocused]}
         >
-            <Text style={styles.buttonText}>{label}</Text>
+            <Ionicons name={icon} size={28} color={focused ? '#fff' : '#0f3460'} />
         </TouchableHighlight>
     );
 }
@@ -498,34 +601,55 @@ const styles = StyleSheet.create({
         bottom: 0,
         left: 0,
         right: 0,
-        backgroundColor: 'rgba(0,0,0,0.5)',
         paddingHorizontal: 32,
-        paddingVertical: 14,
+        paddingTop: 14,
+        paddingBottom: 22,
+        overflow: 'hidden',
+    },
+    overlayRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    logo: {
+        width: 56,
+        height: 56,
+        marginRight: 24,
+    },
+    overlayBottomBar: {
+        position: 'absolute',
+        bottom: 0,
+        left: 0,
+        right: 0,
+        height: 8,
+    },
+    focusCatcher: {
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
     },
     controlsRow: {
+        flex: 1,
         flexDirection: 'row',
         gap: 12,
         alignItems: 'center',
         justifyContent: 'center',
     },
     button: {
-        backgroundColor: '#16213e',
-        paddingHorizontal: 18,
+        backgroundColor: 'transparent',
+        paddingHorizontal: 14,
         paddingVertical: 8,
-        borderRadius: 6,
+        borderRadius: 8,
         borderWidth: 2,
-        borderColor: '#0f3460',
-        minWidth: 50,
+        borderColor: 'transparent',
+        minWidth: 56,
         alignItems: 'center',
+        justifyContent: 'center',
     },
     buttonFocused: {
         backgroundColor: '#0f3460',
         borderColor: '#e94560',
         transform: [{ scale: 1.08 }],
-    },
-    buttonText: {
-        color: '#fff',
-        fontSize: 16,
-        fontWeight: '600',
     },
 });

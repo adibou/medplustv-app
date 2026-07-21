@@ -3,6 +3,7 @@ import { ResolvedPlaylistItem, SlideAssetRef, SlideContentValue } from '../api/t
 import { getAssetIndex, setAssetIndex } from './storage';
 import { slideAssetFileUrl } from '../api/endpoint';
 import type { Logger } from './logger';
+import type { DownloadProgress } from './video-downloader';
 
 export interface AssetSyncReport {
     succeeded: number;
@@ -57,6 +58,7 @@ export async function syncSlideAssets(
     items: ResolvedPlaylistItem[],
     apiKey: string,
     log: Logger,
+    onProgress?: (progress: DownloadProgress) => void,
 ): Promise<AssetSyncReport> {
     const startedAt = Date.now();
     await ensureAssetDir();
@@ -114,6 +116,7 @@ export async function syncSlideAssets(
     let succeeded = 0;
     let failed = 0;
     let totalBytesDownloaded = 0;
+    onProgress?.({ downloaded: 0, total: toDownload.length });
 
     for (let i = 0; i < toDownload.length; i++) {
         const id = toDownload[i];
@@ -152,6 +155,7 @@ export async function syncSlideAssets(
             });
             failed++;
         }
+        onProgress?.({ downloaded: i + 1, total: toDownload.length });
     }
 
     const durationMs = Date.now() - startedAt;

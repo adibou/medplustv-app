@@ -40,8 +40,8 @@ export async function getDisplayLoop(apiKey: string): Promise<ResolvedPlaylistIt
 
 // ── Diagnostic ─────────────────────────────────────────────────────────────────
 
-export async function apiStatus(): Promise<{ message: string; time: string }> {
-    const res = await fetch(`${API_BASE_URL}/`);
+export async function apiStatus(signal?: AbortSignal): Promise<{ message: string; time: string }> {
+    const res = await fetch(`${API_BASE_URL}/`, { signal });
     if (!res.ok) throw new Error(`API status check failed: ${res.status}`);
     return res.json();
 }

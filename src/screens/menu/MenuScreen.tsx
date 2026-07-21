@@ -1,196 +1,312 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, useTVEventHandler } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import * as Application from 'expo-application';
+import * as FileSystem from 'expo-file-system/legacy';
 import { useAuth } from '../../contexts/AuthContext';
 import { API_BASE_URL, apiStatus, dissociateDisplay } from '../../api/endpoint';
-import { getVideoIndex, getLastSyncAt } from '../../shared/storage';
-import { runFullSync } from '../../shared/sync-manager';
-import type { DownloadProgress, SyncReport } from '../../shared/video-downloader';
+import {
+    getVideoIndex,
+    getAssetIndex,
+    getStoredPlaylist,
+    getLastSyncAt,
+} from '../../shared/storage';
+import {
+    runFullSync,
+    subscribeSyncPhase,
+    getCurrentSyncPhase,
+    type SyncPhase,
+} from '../../shared/sync-manager';
 import { createLogger, formatBytes } from '../../shared/logger';
+import { checkAndApplyUpdate } from '../../shared/updates';
 import MenuItem from './components/MenuItem';
 import AppBackground from '../../components/AppBackground';
+
+type ServerStatus = 'checking' | 'ok' | 'error';
+
+interface LocalStats {
+    videoCount: number;
+    slideCount: number;
+    totalBytes: number;
+    freeBytes: number;
+}
 
 export default function MenuScreen() {
     const navigation = useNavigation();
     const { logout, apiKey } = useAuth();
-    const [apiResult, setApiResult] = useState<string | null>(null);
-    const [testing, setTesting] = useState(false);
-    const [syncing, setSyncing] = useState(false);
-    const [syncResult, setSyncResult] = useState<string | null>(null);
-    const [localCount, setLocalCount] = useState<number | null>(null);
-    const [downloadProgress, setDownloadProgress] = useState<DownloadProgress | null>(null);
+
+    const [serverStatus, setServerStatus] = useState<ServerStatus>('checking');
     const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+    const [stats, setStats] = useState<LocalStats | null>(null);
+    const [installDate, setInstallDate] = useState<Date | null>(null);
+    const [syncPhase, setSyncPhase] = useState<SyncPhase | null>(getCurrentSyncPhase());
+    const [confirmingDissociate, setConfirmingDissociate] = useState(false);
 
     const focusedAction = useRef<(() => void) | null>(null);
 
-    useEffect(() => {
-        getVideoIndex().then(idx => setLocalCount(Object.keys(idx).length));
-        getLastSyncAt().then(setLastSyncAt);
-    }, []);
+    // Refresh stats + sync date depuis le storage. Rappelé après une sync.
+    async function refreshLocalData(): Promise<void> {
+        const [videoIndex, assetIndex, playlist, ts, freeBytes] = await Promise.all([
+            getVideoIndex(),
+            getAssetIndex(),
+            getStoredPlaylist(),
+            getLastSyncAt(),
+            FileSystem.getFreeDiskStorageAsync().catch(() => 0),
+        ]);
+        let totalBytes = 0;
+        for (const entry of Object.values(videoIndex)) {
+            if (entry.status !== 'ready') continue;
+            try {
+                const info = await FileSystem.getInfoAsync(entry.uri);
+                if (info.exists && !info.isDirectory) totalBytes += info.size;
+            } catch { /* fichier disparu, on ignore */ }
+        }
+        for (const entry of Object.values(assetIndex)) {
+            if (entry.status !== 'ready') continue;
+            try {
+                const info = await FileSystem.getInfoAsync(entry.uri);
+                if (info.exists && !info.isDirectory) totalBytes += info.size;
+            } catch { /* idem */ }
+        }
+        const videoCount = Object.values(videoIndex).filter(e => e.status === 'ready').length;
+        const uniqueSlideIds = new Set<number>();
+        for (const it of playlist) {
+            if (it.itemType === 'slide') uniqueSlideIds.add(it.itemId);
+        }
+        setStats({ videoCount, slideCount: uniqueSlideIds.size, totalBytes, freeBytes });
+        setLastSyncAt(ts);
+    }
 
-    // useTVEventHandler((evt) => {
-    //     if (evt.eventType === 'select' && focusedAction.current) {
-    //         focusedAction.current();
-    //     }
-    // });
+    useEffect(() => {
+        void refreshLocalData();
+        Application.getInstallationTimeAsync().then(setInstallDate).catch(() => {});
+
+        // Test connexion serveur — 10s max, sinon "erreur". On abort le fetch pour
+        // ne pas laisser trainer une requête zombie si le réseau est très lent.
+        const ac = new AbortController();
+        const timer = setTimeout(() => ac.abort(), 10_000);
+        apiStatus(ac.signal)
+            .then(() => setServerStatus('ok'))
+            .catch(() => setServerStatus('error'))
+            .finally(() => clearTimeout(timer));
+
+        // Check EAS Update ici (fenêtre safe : pas de vidéo en cours). Le
+        // signal évite un reloadAsync si l'utilisateur repart avant la fin
+        // du fetch.
+        const updateCtrl = new AbortController();
+        void checkAndApplyUpdate({ signal: updateCtrl.signal });
+
+        const unsub = subscribeSyncPhase(setSyncPhase);
+        return () => {
+            clearTimeout(timer);
+            ac.abort();
+            updateCtrl.abort();
+            unsub();
+        };
+    }, []);
 
     function handleFocusChange(_focused: boolean, action: () => void) {
         focusedAction.current = _focused ? action : null;
     }
 
-    async function handleTestApi() {
-        setTesting(true);
-        setApiResult(null);
-        try {
-            const res = await apiStatus();
-            setApiResult(`API OK: ${res.message}`);
-        } catch (e: any) {
-            setApiResult(`Erreur: ${e.message}`);
-        } finally {
-            setTesting(false);
-        }
-    }
-
     async function handleSync() {
         if (!apiKey) return;
-        setSyncing(true);
-        setSyncResult(null);
-        setDownloadProgress(null);
         const log = createLogger(apiKey);
         try {
-            const report: SyncReport | null = await runFullSync(apiKey, log, (p) => setDownloadProgress({ ...p }));
-            if (report === null) {
-                setSyncResult('⚠ Sync déjà en cours');
-            } else {
-                const idx = await getVideoIndex();
-                setLocalCount(Object.keys(idx).length);
-                setSyncResult(formatSyncReport(report));
-            }
-            setLastSyncAt(await getLastSyncAt());
+            await runFullSync(apiKey, log);
         } catch (e: any) {
             log('sync.error', { message: e?.message });
-            setSyncResult(`Erreur : ${e.message}`);
         } finally {
-            setSyncing(false);
-            setDownloadProgress(null);
+            await refreshLocalData();
         }
     }
 
-    function isSyncFailure(msg: string): boolean {
-        return msg.startsWith('Erreur') || msg.startsWith('⚠');
-    }
-
-    function formatLastSyncAt(ts: number | null): string {
-        if (ts === null) return 'Dernière synchro : jamais';
-        const d = new Date(ts);
-        const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
-        const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-        return `Dernière synchro : ${date} à ${time}`;
-    }
-
-    function formatSyncReport(r: SyncReport): string {
-        const parts: string[] = [];
-        if (r.aborted) parts.push(`⚠ interrompu (${r.abortReason ?? 'raison inconnue'})`);
-        parts.push(`${r.succeeded} OK`);
-        if (r.failed > 0) parts.push(`${r.failed} échec${r.failed > 1 ? 's' : ''}`);
-        if (r.skipped > 0) parts.push(`${r.skipped} non tenté${r.skipped > 1 ? 's' : ''}`);
-        parts.push(`↓ ${formatBytes(r.totalBytesDownloaded)}`);
-        parts.push(`disque libre : ${formatBytes(r.freeBytesAfter)}`);
-        return parts.join(' • ');
-    }
-
-    async function handleDissocier() {
+    async function handleConfirmDissociate() {
         if (apiKey) {
             try {
                 await dissociateDisplay(apiKey);
-            } catch {}
+            } catch { /* on veut logout même si l'API a échoué */ }
         }
         await logout();
     }
 
     return (
         <AppBackground style={styles.container}>
-            <Text style={styles.title}>Menu</Text>
+            <View style={styles.topRow}>
+                <Text style={styles.title}>Menu</Text>
+                <Image
+                    source={require('../../../assets/images/logo.png')}
+                    style={styles.logo}
+                    resizeMode="contain"
+                />
+            </View>
 
-            <Text style={styles.sectionTitle}>API {API_BASE_URL}</Text>
-            <MenuItem
-                label={testing ? 'Test en cours...' : 'Tester la connexion'}
-                onPress={handleTestApi}
-                onFocusChange={handleFocusChange}
-                hasTVPreferredFocus
-                disabled={testing}
-            />
-            {apiResult && (
-                <Text style={[styles.apiResult, apiResult.startsWith('API OK') ? styles.ok : styles.err]}>
-                    {apiResult}
+            <View style={styles.infoBlock}>
+                <Text style={styles.versionLine}>
+                    MedPlusTV {Application.nativeApplicationVersion ?? '?'}
+                    {' '}
+                    {installDate ? `(${formatShortDate(installDate)})` : ''}
                 </Text>
-            )}
+                <Text style={styles.infoLine}>{formatLastSyncLine(lastSyncAt)}</Text>
+                <Text style={styles.infoLine}>{formatCountsLine(stats)}</Text>
+                <Text style={styles.infoLine}>{formatStorageLine(stats)}</Text>
+                <Text style={styles.serverLine}>{formatServerStatus(serverStatus)}</Text>
+            </View>
 
-            <MenuItem
-                label={syncing ? 'Synchronisation...' : 'Synchroniser les vidéos'}
-                onPress={handleSync}
-                onFocusChange={handleFocusChange}
-                disabled={syncing}
-            />
-            {syncing && !downloadProgress && <ActivityIndicator color="#0f3460" style={styles.loader} />}
-            {syncing && downloadProgress && (
-                <Text style={styles.progress}>
-                    Téléchargé {downloadProgress.downloaded}/{downloadProgress.total}
-                </Text>
-            )}
-            {!syncing && syncResult && (
-                <Text style={[styles.apiResult, isSyncFailure(syncResult) ? styles.err : styles.ok]}>
-                    {syncResult}
-                </Text>
-            )}
-            {localCount !== null && (
-                <Text style={styles.localCount}>
-                    {localCount} vidéo{localCount !== 1 ? 's' : ''} en local
-                </Text>
-            )}
-            <Text style={styles.lastSync}>{formatLastSyncAt(lastSyncAt)}</Text>
+            <View style={styles.buttons}>
+                <MenuItem
+                    label="Retour"
+                    onPress={() => navigation.goBack()}
+                    onFocusChange={handleFocusChange}
+                    hasTVPreferredFocus
+                />
 
-            <MenuItem
-                label="Dissocier cet écran"
-                onPress={handleDissocier}
-                onFocusChange={handleFocusChange}
-                danger
-            />
+                {syncPhase ? (
+                    <View style={styles.syncStatus}>
+                        <Text style={styles.syncPhase}>{formatPhaseLabel(syncPhase)}</Text>
+                        <Text style={styles.syncHint}>
+                            Synchronisation en cours, vous pouvez retourner aux vidéos, la
+                            synchronisation continuera en arrière-plan.
+                        </Text>
+                    </View>
+                ) : (
+                    <MenuItem
+                        label="Synchroniser les vidéos maintenant"
+                        onPress={handleSync}
+                        onFocusChange={handleFocusChange}
+                    />
+                )}
 
-            <MenuItem
-                label="Retour"
-                onPress={() => navigation.goBack()}
-                onFocusChange={handleFocusChange}
-            />
+                {confirmingDissociate ? (
+                    <View style={styles.confirmRow}>
+                        <MenuItem
+                            label="Confirmer la dissociation"
+                            onPress={handleConfirmDissociate}
+                            onFocusChange={handleFocusChange}
+                            danger
+                        />
+                        <MenuItem
+                            label="Annuler"
+                            onPress={() => setConfirmingDissociate(false)}
+                            onFocusChange={handleFocusChange}
+                        />
+                    </View>
+                ) : (
+                    <MenuItem
+                        label="Dissocier cet écran"
+                        onPress={() => setConfirmingDissociate(true)}
+                        onFocusChange={handleFocusChange}
+                        danger
+                    />
+                )}
+            </View>
         </AppBackground>
     );
+}
+
+function formatShortDate(d: Date): string {
+    return d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function formatLastSyncLine(lastSyncAt: number | null): string {
+    if (lastSyncAt === null) return 'Dernière synchronisation : jamais';
+    const d = new Date(lastSyncAt);
+    const date = d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    const time = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    return `Dernière synchronisation le ${date} à ${time}`;
+}
+
+function formatCountsLine(stats: LocalStats | null): string {
+    if (!stats) return '…';
+    const v = stats.videoCount;
+    const s = stats.slideCount;
+    return `${v} vidéo${v > 1 ? 's' : ''} et ${s} diapositive${s > 1 ? 's' : ''} en local`;
+}
+
+function formatStorageLine(stats: LocalStats | null): string {
+    if (!stats) return '…';
+    return `${formatBytes(stats.totalBytes)} au total — ${formatBytes(stats.freeBytes)} disponibles`;
+}
+
+function formatServerStatus(s: ServerStatus): string {
+    switch (s) {
+        case 'checking': return 'Connexion au serveur…';
+        case 'ok':       return 'Serveur : connecté ✓';
+        case 'error':    return `Erreur de connexion au serveur (${API_BASE_URL})`;
+    }
+}
+
+function formatPhaseLabel(phase: SyncPhase): string {
+    switch (phase.kind) {
+        case 'fetching-playlist':
+            return 'Récupération de la playlist…';
+        case 'videos':
+            return phase.total === 0
+                ? 'Vidéos : rien à télécharger'
+                : `Synchronisation vidéo ${phase.downloaded}/${phase.total}`;
+        case 'slides':
+            return phase.total === 0
+                ? 'Diapositives : rien à télécharger'
+                : `Synchronisation diapositive ${phase.downloaded}/${phase.total}`;
+    }
 }
 
 const styles = StyleSheet.create({
     container: {
         padding: 60,
-        gap: 28,
+        gap: 32,
+    },
+    topRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
     },
     title: {
         fontSize: 42,
         fontWeight: 'bold',
         color: '#0f3460',
-        marginBottom: 8,
     },
-    sectionTitle: {
-        fontSize: 16,
+    logo: {
+        width: 160,
+        height: 60,
+    },
+    infoBlock: {
+        gap: 4,
+        alignItems: 'flex-start',
+    },
+    versionLine: {
+        fontSize: 14,
+        color: '#0f3460',
+        fontWeight: '600',
+    },
+    infoLine: {
+        fontSize: 13,
         color: '#5a6b85',
-        textTransform: 'uppercase',
-        letterSpacing: 1,
     },
-    apiResult: {
-        fontSize: 16,
-        marginTop: 6,
+    serverLine: {
+        fontSize: 12,
+        color: '#5a6b85',
+        marginTop: 4,
     },
-    ok: { color: '#2e7d32' },
-    err: { color: '#c62828' },
-    loader: { marginTop: 8 },
-    localCount: { fontSize: 14, color: '#5a6b85', marginTop: -12 },
-    lastSync: { fontSize: 14, color: '#5a6b85', marginTop: -20 },
-    progress: { fontSize: 18, color: '#0f3460', fontVariant: ['tabular-nums'] },
+    buttons: {
+        gap: 12,
+        alignItems: 'flex-start',
+    },
+    syncStatus: {
+        gap: 4,
+        maxWidth: 640,
+    },
+    syncPhase: {
+        fontSize: 14,
+        color: '#0f3460',
+        fontWeight: '700',
+    },
+    syncHint: {
+        fontSize: 12,
+        color: '#5a6b85',
+    },
+    confirmRow: {
+        flexDirection: 'row',
+        gap: 12,
+    },
 });

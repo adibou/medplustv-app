@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { View, Image, StyleSheet, TouchableHighlight, useTVEventHandler } from 'react-native';
+import { View, Image, StyleSheet, TouchableHighlight, useTVEventHandler, AppState } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -401,6 +401,36 @@ export default function MainScreen() {
         clearSlideTimer();
         clearOverlayTimer();
     }, []);
+
+    // Retour de background : expo-video pause nativement le player quand l'app
+    // passe en background sans mettre à jour notre state React → au réveil on
+    // relance manuellement pour éviter le mismatch (bouton "play" affiché alors
+    // que rien ne joue). Pour les slides on ré-arme le timer d'affichage avec
+    // une durée pleine — le setTimeout JS peut être gelé pendant le background.
+    useEffect(() => {
+        const sub = AppState.addEventListener('change', (state) => {
+            if (state !== 'active') return;
+            if (pausedRef.current) return;
+            const slide = currentSlideRef.current;
+            if (slide) {
+                clearSlideTimer();
+                const capturedKey = lastPlayedRef.current;
+                const durationMs = slide.duration * 1000;
+                slideTimeoutRef.current = setTimeout(() => {
+                    slideTimeoutRef.current = null;
+                    void (async () => {
+                        const { list, assetIdx } = await pickPlayable();
+                        setAssetIndex(assetIdx);
+                        await advanceFrom(list, capturedKey, 1);
+                    })();
+                }, durationMs);
+                return;
+            }
+            player.play();
+        });
+        return () => sub.remove();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [player]);
 
     // Charge la préférence mute persistée au mount (indépendant du player pour
     // éviter toute race avec l'init natif d'expo-video).

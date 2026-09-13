@@ -253,7 +253,7 @@ function formatPhaseLabel(phase: SyncPhase): string {
 
 const styles = StyleSheet.create({
     container: {
-        padding: 60,
+        padding: 40,
         gap: 32,
     },
     topRow: {
@@ -275,16 +275,16 @@ const styles = StyleSheet.create({
         alignItems: 'flex-start',
     },
     versionLine: {
-        fontSize: 14,
+        fontSize: 18,
         color: '#0f3460',
         fontWeight: '600',
     },
     infoLine: {
-        fontSize: 13,
+        fontSize: 15,
         color: '#5a6b85',
     },
     serverLine: {
-        fontSize: 12,
+        fontSize: 14,
         color: '#5a6b85',
         marginTop: 4,
     },

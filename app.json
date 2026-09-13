@@ -1,11 +1,14 @@
 {
   "expo": {
+    "icon": "./assets/images/medplustv-logo.png",
     "plugins": [
       [
         "@react-native-tvos/config-tv",
         {
           "isTV": true,
-          "androidTVBanner": "./assets/images/icon-400x240.png"
+          "androidTVRequired": true,
+          "androidTVBanner": "./assets/images/medplustv-banner.png",
+          "androidTVIcon": "./assets/images/medplustv-logo.png"
         }
       ],
       "expo-video",
@@ -15,14 +18,15 @@
       "splash": {
         "image": "./assets/images/icon-1920x720.png"
       },
-      "package": "com.dawi.medplustv"
+      "package": "com.dawi.medplustv",
+      "icon" : "./assets/images/medplustv-logo.png"
     },
     "ios": {
       "splash": {
         "image": "./assets/images/icon-1920x720.png"
       }
     },
-    "name": "medplustv-app",
+    "name": "MedplusTV",
     "version": "1.0.0",
     "slug": "medplustv-app",
     "extra": {

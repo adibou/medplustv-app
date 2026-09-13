@@ -8,6 +8,8 @@
     "web": "expo start --web",
     "prebuild:tv": "cross-env EXPO_TV=1 expo prebuild --clean",
     "prebuild": "expo prebuild --clean",
+    "build:prod": "eas build --profile production --platform android",
+    "update:prod": "eas update --channel production",
     "lint": "expo lint",
     "gcloud:auth": "gcloud auth application-default login --impersonate-service-account=dawi-dev-runtime@dawi-dev-490617.iam.gserviceaccount.com",
     "boot": "& \"$env:LOCALAPPDATA\\Android\\Sdk\\emulator\\emulator.exe\" -avd Television_1080p_API_36 -no-snapshot-load -no-boot-anim"

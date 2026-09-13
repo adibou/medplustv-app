@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, Pressable } from 'react-native';
+import { View, Text, StyleSheet, ActivityIndicator, TouchableHighlight } from 'react-native';
 import { useDevicePairing } from '../hooks/useDevicePairing';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL, apiStatus } from '../api/endpoint';
@@ -125,20 +125,59 @@ export default function PairingScreen() {
                     )}
 
                     <View style={styles.buttonRow}>
-                        <Pressable
-                            style={[styles.button, styles.buttonSecondary]}
+                        <TVButton
+                            variant="secondary"
+                            label="Tester la connexion"
                             onPress={checkServer}
                             disabled={reachability === 'checking'}
-                        >
-                            <Text style={styles.buttonSecondaryText}>Tester la connexion</Text>
-                        </Pressable>
-                        <Pressable style={styles.button} onPress={restart}>
-                            <Text style={styles.buttonText}>Réessayer l'association</Text>
-                        </Pressable>
+                        />
+                        <TVButton
+                            variant="primary"
+                            label="Réessayer l'association"
+                            onPress={restart}
+                            hasTVPreferredFocus
+                        />
                     </View>
                 </View>
             )}
         </AppBackground>
+    );
+}
+
+// Bouton focusable télécommande : sans feedback focus visible, un utilisateur
+// avec DPAD ne sait pas quel bouton est ciblé (bloquant pour la revue Play Store TV).
+function TVButton({
+    label,
+    onPress,
+    variant,
+    hasTVPreferredFocus = false,
+    disabled = false,
+}: {
+    label: string;
+    onPress: () => void;
+    variant: 'primary' | 'secondary';
+    hasTVPreferredFocus?: boolean;
+    disabled?: boolean;
+}) {
+    const [focused, setFocused] = useState(false);
+    const isPrimary = variant === 'primary';
+    return (
+        <TouchableHighlight
+            onPress={onPress}
+            disabled={disabled}
+            hasTVPreferredFocus={hasTVPreferredFocus}
+            onFocus={() => setFocused(true)}
+            onBlur={() => setFocused(false)}
+            underlayColor={isPrimary ? '#16213e' : '#dbe6ff'}
+            style={[
+                styles.button,
+                !isPrimary && styles.buttonSecondary,
+                focused && styles.buttonFocused,
+                disabled && styles.buttonDisabled,
+            ]}
+        >
+            <Text style={isPrimary ? styles.buttonText : styles.buttonSecondaryText}>{label}</Text>
+        </TouchableHighlight>
     );
 }
 
@@ -298,5 +337,13 @@ const styles = StyleSheet.create({
         fontSize: 18,
         color: '#0f3460',
         fontWeight: 'bold',
+    },
+    buttonFocused: {
+        borderWidth: 3,
+        borderColor: '#e94560',
+        transform: [{ scale: 1.05 }],
+    },
+    buttonDisabled: {
+        opacity: 0.5,
     },
 });

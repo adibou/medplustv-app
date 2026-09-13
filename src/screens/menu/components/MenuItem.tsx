@@ -49,7 +49,8 @@ const styles = StyleSheet.create({
         alignSelf: 'flex-start',
     },
     itemFocused: {
-        backgroundColor: 'rgba(15, 52, 96, 0.12)',
+        borderWidth: 2,
+        borderColor: '#0f3460',
     },
     itemDisabled: {
         opacity: 0.5,

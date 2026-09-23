@@ -1,14 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ActivityIndicator, TouchableHighlight } from 'react-native';
+import { View, Text, TextInput, StyleSheet, ActivityIndicator } from 'react-native';
 import { useDevicePairing } from '../hooks/useDevicePairing';
 import { useAuth } from '../contexts/AuthContext';
 import { API_BASE_URL, apiStatus } from '../api/endpoint';
 import AppBackground from '../components/AppBackground';
+import TVButton from '../components/TVButton';
 
 type ReachabilityStatus = 'idle' | 'checking' | 'ok' | 'ko';
 
 export default function PairingScreen() {
-    const { phase, code, error, apiKey, restart } = useDevicePairing();
+    const { phase, email, error, apiKey, submitEmail, changeEmail, restart } = useDevicePairing();
     const { authenticate } = useAuth();
     const [reachability, setReachability] = useState<ReachabilityStatus>('idle');
     const [reachabilityDetail, setReachabilityDetail] = useState<string | null>(null);
@@ -42,36 +43,42 @@ export default function PairingScreen() {
 
     return (
         <AppBackground style={styles.container}>
-            {(phase === 'idle' || phase === 'requesting') && (
+            {phase === 'idle' && (
+                <EmailStep initialEmail={email} error={error} onSubmit={submitEmail} />
+            )}
+
+            {phase === 'requesting' && (
                 <>
                     <ActivityIndicator size="large" color="#0f3460" />
-                    <Text style={styles.message}>Génération du code...</Text>
+                    <Text style={styles.message}>Envoi du lien...</Text>
                 </>
             )}
 
-            {phase === 'displaying' && code && (
+            {phase === 'waiting' && (
                 <>
-                    <Text style={styles.title}>Associez cet écran</Text>
+                    <Text style={styles.title}>Vérifiez vos emails</Text>
                     <Text style={styles.instruction}>
-                        Rendez-vous sur votre compte <Text style={styles.instructionLink}>app.medplus.tv</Text>, cliquez sur <Text style={styles.instructionAction}>{'+ associer un écran'}</Text> et saisissez ce code :
+                        Si cette adresse est connue, un email vient d&apos;être envoyé à{' '}
+                        <Text style={styles.instructionLink}>{email}</Text>.{'\n'}
+                        Ouvrez le lien qu&apos;il contient pour associer cet écran.
                     </Text>
-                    <View style={styles.codeContainer}>
-                        {code.split('').map((digit, i) => (
-                            <View key={i} style={styles.digitBox}>
-                                <Text style={styles.digit}>{digit}</Text>
-                            </View>
-                        ))}
-                    </View>
                     <ActivityIndicator size="small" color="#666" style={styles.polling} />
-                    <Text style={styles.waiting}>En attente d'association...</Text>
+                    <Text style={styles.waiting}>En attente du clic sur le lien...</Text>
+                    <View style={styles.buttonRow}>
+                        <TVButton variant="secondary" label="Changer d'adresse" onPress={changeEmail} hasTVPreferredFocus />
+                    </View>
                 </>
             )}
 
             {phase === 'expired' && (
                 <>
-                    <Text style={styles.message}>Code expiré</Text>
-                    <Text style={styles.waiting}>Génération d'un nouveau code...</Text>
-                    <ActivityIndicator size="small" color="#666" style={styles.polling} />
+                    <Text style={styles.title}>Le lien a expiré</Text>
+                    <Text style={styles.instruction}>
+                        Le lien envoyé à <Text style={styles.instructionLink}>{email}</Text> n&apos;a pas été utilisé à temps.
+                    </Text>
+                    <View style={styles.buttonRow}>
+                        <TVButton variant="primary" label="Recommencer" onPress={restart} hasTVPreferredFocus />
+                    </View>
                 </>
             )}
 
@@ -86,9 +93,8 @@ export default function PairingScreen() {
                 <View style={styles.errorBlock}>
                     <Text style={styles.errorTitle}>Association impossible</Text>
                     <Text style={styles.errorBody}>
-                        Le serveur MedPlusTV n'a pas pu être joint pour générer un code
-                        d'association. Vérifiez que cet écran est bien connecté à Internet,
-                        puis réessayez.
+                        Le serveur MedPlusTV n&apos;a pas pu envoyer le lien d&apos;association.
+                        Vérifiez que cet écran est bien connecté à Internet, puis réessayez.
                     </Text>
 
                     <View style={styles.techBox}>
@@ -108,7 +114,7 @@ export default function PairingScreen() {
                             )}
                             {reachability === 'ok' && (
                                 <Text style={styles.diagOk}>
-                                    ✓ Le serveur répond. Vous pouvez réessayer l'association.
+                                    ✓ Le serveur répond. Vous pouvez réessayer l&apos;association.
                                 </Text>
                             )}
                             {reachability === 'ko' && (
@@ -144,40 +150,51 @@ export default function PairingScreen() {
     );
 }
 
-// Bouton focusable télécommande : sans feedback focus visible, un utilisateur
-// avec DPAD ne sait pas quel bouton est ciblé (bloquant pour la revue Play Store TV).
-function TVButton({
-    label,
-    onPress,
-    variant,
-    hasTVPreferredFocus = false,
-    disabled = false,
-}: {
-    label: string;
-    onPress: () => void;
-    variant: 'primary' | 'secondary';
-    hasTVPreferredFocus?: boolean;
-    disabled?: boolean;
+// Saisie de l'email : le TextInput est focusable au DPAD (select → clavier IME
+// Android TV / plein écran tvOS). Un seul `hasTVPreferredFocus` : l'input.
+function EmailStep({ initialEmail, error, onSubmit }: {
+    initialEmail: string;
+    error: string | null;
+    onSubmit: (email: string) => void;
 }) {
+    const [value, setValue] = useState(initialEmail);
     const [focused, setFocused] = useState(false);
-    const isPrimary = variant === 'primary';
+
+    // Préremplissage asynchrone (dernier email persisté) arrivé après le montage.
+    useEffect(() => {
+        if (initialEmail) setValue((current) => current || initialEmail);
+    }, [initialEmail]);
+
+    const canSubmit = value.trim().length > 0;
+
     return (
-        <TouchableHighlight
-            onPress={onPress}
-            disabled={disabled}
-            hasTVPreferredFocus={hasTVPreferredFocus}
-            onFocus={() => setFocused(true)}
-            onBlur={() => setFocused(false)}
-            underlayColor={isPrimary ? '#16213e' : '#dbe6ff'}
-            style={[
-                styles.button,
-                !isPrimary && styles.buttonSecondary,
-                focused && styles.buttonFocused,
-                disabled && styles.buttonDisabled,
-            ]}
-        >
-            <Text style={isPrimary ? styles.buttonText : styles.buttonSecondaryText}>{label}</Text>
-        </TouchableHighlight>
+        <>
+            <Text style={styles.title}>Associez cet écran</Text>
+            <Text style={styles.instruction}>
+                Saisissez l&apos;adresse email de votre compte <Text style={styles.instructionLink}>MedPlusTV</Text>,
+                vous recevrez un lien pour associer cet écran.
+            </Text>
+            <TextInput
+                value={value}
+                onChangeText={setValue}
+                onSubmitEditing={() => canSubmit && onSubmit(value)}
+                onFocus={() => setFocused(true)}
+                onBlur={() => setFocused(false)}
+                placeholder="prenom.nom@exemple.fr"
+                placeholderTextColor="#8a93a5"
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoCorrect={false}
+                autoComplete="email"
+                returnKeyType="done"
+                hasTVPreferredFocus
+                style={[styles.input, focused && styles.inputFocused]}
+            />
+            {error && <Text style={styles.inputError}>{error}</Text>}
+            <View style={styles.buttonRow}>
+                <TVButton variant="primary" label="Envoyer le lien" onPress={() => onSubmit(value)} disabled={!canSubmit} />
+            </View>
+        </>
     );
 }
 
@@ -197,41 +214,35 @@ const styles = StyleSheet.create({
         fontSize: 20,
         color: '#333',
         textAlign: 'center',
-        marginBottom: 40,
-        maxWidth: 600,
+        marginBottom: 32,
+        maxWidth: 640,
+        lineHeight: 28,
     },
     instructionLink: {
         color: '#0f3460',
         fontWeight: 'bold',
     },
-    instructionAction: {
-        color: '#0f3460',
-        fontWeight: 'bold',
-        borderWidth: 1,
-        borderColor: '#0f3460',
-        borderRadius: 6,
-        paddingHorizontal: 8,
-        paddingVertical: 2,
-    },
-    codeContainer: {
-        flexDirection: 'row',
-        gap: 12,
-        marginBottom: 40,
-    },
-    digitBox: {
-        backgroundColor: '#16213e',
-        borderRadius: 12,
-        width: 80,
-        height: 100,
-        alignItems: 'center',
-        justifyContent: 'center',
+    input: {
+        width: 520,
+        maxWidth: '100%',
+        backgroundColor: '#fff',
         borderWidth: 2,
         borderColor: '#0f3460',
+        borderRadius: 10,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        fontSize: 22,
+        color: '#0f3460',
+        marginBottom: 12,
     },
-    digit: {
-        fontSize: 48,
-        fontWeight: 'bold',
+    inputFocused: {
+        borderWidth: 3,
+        borderColor: '#e94560',
+    },
+    inputError: {
+        fontSize: 16,
         color: '#e94560',
+        marginBottom: 12,
     },
     polling: {
         marginBottom: 12,
@@ -239,6 +250,7 @@ const styles = StyleSheet.create({
     waiting: {
         fontSize: 16,
         color: '#666',
+        marginBottom: 24,
     },
     message: {
         fontSize: 24,
@@ -316,34 +328,6 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         justifyContent: 'center',
         gap: 12,
-    },
-    button: {
-        backgroundColor: '#0f3460',
-        paddingHorizontal: 24,
-        paddingVertical: 14,
-        borderRadius: 8,
-    },
-    buttonText: {
-        fontSize: 18,
-        color: '#fff',
-        fontWeight: 'bold',
-    },
-    buttonSecondary: {
-        backgroundColor: '#fff',
-        borderWidth: 2,
-        borderColor: '#0f3460',
-    },
-    buttonSecondaryText: {
-        fontSize: 18,
-        color: '#0f3460',
-        fontWeight: 'bold',
-    },
-    buttonFocused: {
-        borderWidth: 3,
-        borderColor: '#e94560',
-        transform: [{ scale: 1.05 }],
-    },
-    buttonDisabled: {
-        opacity: 0.5,
+        marginTop: 8,
     },
 });

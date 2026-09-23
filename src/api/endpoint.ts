@@ -11,12 +11,25 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? `http://${de
 
 // ── Pairing (public, pas d'apiKey) ─────────────────────────────────────────────
 
-export async function requestPairingCode(): Promise<PairingRequestResponse> {
-    const res = await fetch(`${API_BASE_URL}/pairing/request`, {
+// La TV envoie l'email de l'utilisateur ; l'API répond de façon neutre (email connu
+// ou non) et envoie un lien magique si le compte existe. Les 4xx portent un message
+// lisible (cooldown, email invalide) qu'on remonte tel quel à l'écran.
+export async function requestPairing(email: string): Promise<PairingRequestResponse> {
+    const res = await fetch(API_BASE_URL + '/pairing/request', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email }),
     });
-    if (!res.ok) throw new Error(`Pairing request failed: ${res.status}`);
+    if (!res.ok) {
+        let message: string | null = null;
+        try {
+            const body = await res.json();
+            message = body?.message ?? body?.error ?? null;
+        } catch {
+            // corps non JSON : on retombe sur le status
+        }
+        throw new Error(message ?? ('Pairing request failed: ' + res.status));
+    }
     return res.json();
 }
 

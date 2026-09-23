@@ -76,7 +76,6 @@ export type ResolvedPlaylistResponse = {
 // ── Pairing ────────────────────────────────────────────────────────────────────
 
 export type PairingRequestResponse = {
-    code: string;
     sessionToken: string;
     expiresAt: string;
 };

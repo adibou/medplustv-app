@@ -7,6 +7,7 @@ const VIDEO_INDEX_KEY = 'medplustv_video_index';
 const ASSET_INDEX_KEY = 'medplustv_asset_index';
 const MUTED_KEY = 'medplustv_muted';
 const LAST_SYNC_AT_KEY = 'medplustv_last_sync_at';
+const PAIRING_EMAIL_KEY = 'medplustv_pairing_email';
 
 // Cycle de vie d'une vidéo côté client :
 //   not_loaded → loading → ready
@@ -34,6 +35,16 @@ export async function storeApiKey(apiKey: string): Promise<void> {
 
 export async function clearApiKey(): Promise<void> {
     await AsyncStorage.removeItem(API_KEY_STORAGE_KEY);
+}
+
+// Dernier email saisi sur l'écran d'association : préremplissage lors d'une
+// ré-association (après "Dissocier").
+export async function getStoredPairingEmail(): Promise<string | null> {
+    return AsyncStorage.getItem(PAIRING_EMAIL_KEY);
+}
+
+export async function storePairingEmail(email: string): Promise<void> {
+    await AsyncStorage.setItem(PAIRING_EMAIL_KEY, email);
 }
 
 export async function getStoredPlaylist(): Promise<ResolvedPlaylistItem[]> {

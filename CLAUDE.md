@@ -29,14 +29,16 @@ src/
   api/
     endpoint.ts      # fetch wrappers vers l'API HTTP
     types.ts         # DTOs (LoopItem, PairPollResponse, etc.)
+  components/
+    TVButton.tsx     # bouton focusable télécommande (feedback focus)
   contexts/
-    AuthContext.tsx  # status: loading | unauthenticated | authenticated
+    AuthContext.tsx  # status: loading | unauthenticated | onboarding | authenticated
   hooks/
-    useDevicePairing.ts  # état machine du pairing (request → poll → paired/expired)
+    useDevicePairing.ts  # état machine du pairing (email → request → poll → confirmed/expired)
   navigation/
     RootNavigator.tsx    # switch Pairing ⇄ Main/Menu selon auth
   screens/
-    PairingScreen.tsx    # affichage du code, feedback pairing
+    PairingScreen.tsx    # saisie email, attente du clic sur le lien, feedback pairing
     MainScreen.tsx       # player fullscreen + overlay contrôles TV
     menu/
       MenuScreen.tsx     # test API, sync vidéos, dissociation
@@ -50,9 +52,10 @@ src/
 
 ### Pairing (premier lancement)
 1. `AuthContext` monte → check AsyncStorage → `unauthenticated` si vide
-2. `PairingScreen` monte → `useDevicePairing` appelle `POST /displays/request-code` → affiche le code
-3. Poll `POST /displays/poll` toutes les 5s. Trois issues : `pending` / `expired` (retry auto après 3s) / `paired` (retourne `apiKey`)
-4. Sur `paired` → `authenticate(apiKey)` → stockage AsyncStorage → RootNavigator bascule sur `Main`
+2. `PairingScreen` demande l'**email** de l'utilisateur (TextInput + clavier TV). `useDevicePairing.submitEmail` appelle `POST /pairing/request { email }` → `{ sessionToken, expiresAt }` (réponse neutre, que l'email soit connu ou non)
+3. L'API envoie un **lien magique** par mail (`https://app.medplus.tv/#/pair?token=…`) : le clic connecte l'utilisateur au BO et associe l'écran. Valideurs stores : email `VALIDATOR_EMAIL` → pas de mail, la TV est connectée depuis la page publique BO `/#/validation`
+4. Poll `GET /pairing/status?sessionToken=…` toutes les 5s. Trois issues : `pending` / `expired` (boutons « Recommencer » / « Changer d'adresse », pas de relance auto) / `confirmed` (retourne `apiKey`)
+5. Sur `confirmed` → `authenticate(apiKey)` → stockage AsyncStorage → RootNavigator bascule sur `PostPairing` puis `Main`
 
 ### Sync vidéos (depuis MenuScreen)
 1. `GET /displays/loop` (header `x-api-key`) → liste `LoopItem[]`
@@ -102,7 +105,7 @@ src/
 
 - **`expo-file-system/legacy`** : le legacy est utilisé volontairement. La nouvelle API (imports `expo-file-system`) a une surface différente — ne pas migrer sans discuter.
 - **Aucun handling des `slide`** : le code filtre `type === 'video'`. Les slides existent dans le type `LoopItem` mais ne sont pas rendues.
-- **Pairing polling** : intervalle 5s, pas de backoff. La cleanup se fait via `AppState` (arrêt du poll quand l'app passe en background).
+- **Pairing polling** : intervalle 5s, pas de backoff. La cleanup se fait via `AppState` (arrêt du poll quand l'app passe en background). Le dernier email saisi est persisté (`medplustv_pairing_email`) pour préremplir une ré-association.
 - **Le `dissociateDisplay`** extrait le `displayId` en splittant l'apiKey sur `.` (format `{displayId}.{secret}`).
 
 ## Git

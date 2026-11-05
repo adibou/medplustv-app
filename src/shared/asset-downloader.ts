@@ -3,6 +3,7 @@ import { ResolvedPlaylistItem, SlideAssetRef, SlideContentValue } from '../api/t
 import { getAssetIndex, setAssetIndex } from './storage';
 import { slideAssetFileUrl } from '../api/endpoint';
 import type { Logger } from './logger';
+import { downloadVerified } from './verified-download';
 import type { DownloadProgress } from './video-downloader';
 
 export interface AssetSyncReport {
@@ -126,20 +127,14 @@ export async function syncSlideAssets(
         try {
             index[id] = { uri: localUri, status: 'loading' };
             await setAssetIndex(index);
-            await FileSystem.downloadAsync(slideAssetFileUrl(id), localUri, {
-                headers: { 'x-api-key': apiKey },
-            });
-            const info = await FileSystem.getInfoAsync(localUri);
-            if (!info.exists || info.isDirectory || info.size === 0) {
-                throw new Error('Empty or missing file after download');
-            }
-            totalBytesDownloaded += info.size;
+            const bytes = await downloadVerified(slideAssetFileUrl(id), localUri, { 'x-api-key': apiKey });
+            totalBytesDownloaded += bytes;
             index[id] = { uri: localUri, status: 'ready' };
             await setAssetIndex(index);
             log('sync.item.done', {
                 id,
                 kind: 'asset',
-                bytes: info.size,
+                bytes,
                 durationMs: Date.now() - itemStart,
             });
             succeeded++;

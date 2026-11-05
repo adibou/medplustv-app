@@ -3,6 +3,8 @@ import { ResolvedPlaylistItem, Video } from '../api/types';
 import { getVideoIndex, setVideoIndex, type VideoIndex } from './storage';
 import { videoFileUrl } from '../api/endpoint';
 import type { Logger } from './logger';
+import { downloadVerified } from './verified-download';
+import { getNowPlayingVideo } from './now-playing';
 
 export interface DownloadProgress {
     downloaded: number;
@@ -43,9 +45,13 @@ function localUriForVideoId(videoId: number): string {
     return getVideoDir() + `${videoId}.mp4`;
 }
 
-async function isAlreadyDownloaded(localUri: string): Promise<boolean> {
+// Un fichier local n'est valide que s'il a exactement la taille attendue : un
+// fichier tronqué ou un corps d'erreur HTTP enregistré par une ancienne version
+// de l'app est ainsi détecté et retéléchargé.
+async function isAlreadyDownloaded(localUri: string, expectedSize: number): Promise<boolean> {
     const info = await FileSystem.getInfoAsync(localUri);
-    return info.exists && !info.isDirectory && info.size > 0;
+    if (!info.exists || info.isDirectory || info.size === 0) return false;
+    return !(expectedSize > 0) || info.size === expectedSize;
 }
 
 // Extrait la Map { videoId → Video } d'une playlist résolue. Un même item vidéo
@@ -75,8 +81,17 @@ export async function syncVideos(
     const currentIds = new Set(uniqueVideos.keys());
 
     const toPurge: number[] = [];
+    const playingId = getNowPlayingVideo();
     for (const key of Object.keys(index)) {
-        if (!currentIds.has(Number(key))) toPurge.push(Number(key));
+        const id = Number(key);
+        if (currentIds.has(id)) continue;
+        // Purge différée : le player lit ce fichier en ce moment. Il sort de la
+        // playlist, donc il ne sera plus rejoué et partira à la prochaine sync.
+        if (id === playingId) {
+            log('sync.purge.item', { id, kind: 'video', bytes: 0, ok: true, deferred: true });
+            continue;
+        }
+        toPurge.push(id);
     }
 
     const toDownload: Video[] = [];
@@ -84,7 +99,7 @@ export async function syncVideos(
     for (const [id, video] of uniqueVideos) {
         const localUri = localUriForVideoId(id);
         const entry = index[id];
-        const already = entry?.status === 'ready' && await isAlreadyDownloaded(localUri);
+        const already = entry?.status === 'ready' && await isAlreadyDownloaded(localUri, Number(video.size));
         if (already) {
             alreadyLocalCount++;
         } else {
@@ -224,21 +239,20 @@ export async function syncVideos(
         try {
             index[video.id] = { uri: localUri, status: 'loading' };
             await setVideoIndex(index);
-            await FileSystem.downloadAsync(videoFileUrl(video.id), localUri, {
-                headers: { 'x-api-key': apiKey },
-            });
-            const info = await FileSystem.getInfoAsync(localUri);
-            if (!info.exists || info.isDirectory || info.size === 0) {
-                throw new Error('Empty or missing file after download');
-            }
-            totalBytesDownloaded += info.size;
+            const bytes = await downloadVerified(
+                videoFileUrl(video.id),
+                localUri,
+                { 'x-api-key': apiKey },
+                Number(video.size),
+            );
+            totalBytesDownloaded += bytes;
             index[video.id] = { uri: localUri, status: 'ready' };
             await setVideoIndex(index);
             const freeAfter = await FileSystem.getFreeDiskStorageAsync();
             log('sync.item.done', {
                 id: video.id,
                 kind: 'video',
-                bytes: info.size,
+                bytes,
                 durationMs: Date.now() - itemStart,
                 freeBytesAfter: freeAfter,
             });
@@ -248,6 +262,8 @@ export async function syncVideos(
             // Cleanup best-effort du fichier partiel + retour à `not_loaded` pour
             // qu'une future sync retente (et pour ne pas laisser une entrée
             // `loading` fantôme si l'app crashe pile ici).
+            // Le fichier final n'est jamais écrit en cas d'échec (download dans un
+            // `.part`) : on ne supprime que l'éventuelle ancienne copie invalide.
             try { await FileSystem.deleteAsync(localUri, { idempotent: true }); } catch {}
             index[video.id] = { uri: localUri, status: 'not_loaded' };
             await setVideoIndex(index);

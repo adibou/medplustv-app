@@ -69,6 +69,13 @@ src/
 - Charge `loopItems` + `videoIndex` depuis AsyncStorage (**pas d'appel API**, tout est local)
 - Filtre `type === 'video' && index[id]` → construit `playlist`
 - Joue en boucle : listener `statusChange==='idle'` → next (modulo)
+- **Garde-fous anti-gel** (cf. constantes en tête de `MainScreen`) :
+  - fin de vidéo détectée par `playToEnd` (+ `idle` en secours), dédoublonnée par `seq` ;
+  - statut `error` du player traité : log `video.error`, passage au suivant, et après 2 erreurs la vidéo passe `notfound` (retéléchargée à la sync suivante) ;
+  - tout enchaînement passe par `runGuarded` (verrou + try/catch + repli sur la vidéo par défaut, log `player.advance.error`) — ne jamais rappeler `advance` directement ;
+  - watchdog toutes les 10 s : élément qui dépasse sa durée + 30 s, ou vidéo dont la position n'avance plus depuis 30 s → log `player.stall` et passage forcé au suivant ;
+  - pause : logs `player.pause` / `player.resume`, reprise auto après 10 min, pastille pause visible, focus initial sur « suivant » (pas sur pause).
+- Téléchargements via `shared/verified-download.ts` : fichier `.part`, contrôle du code HTTP et de la taille (`video.size`) avant renommage. Un fichier local dont la taille ne correspond pas est retéléchargé. La purge ne supprime jamais la vidéo en cours de lecture (`shared/now-playing.ts`).
 - Overlay bas : `⏮ ⏸/▶ ⏭ ☰`. Focus TV via `TouchableHighlight`. `useTVEventHandler('select')` déclenche l'action focus courante (fallback pour les remotes qui ne mappent pas 'select' sur `onPress`).
 
 ## Conventions (NON DÉRIVABLES)

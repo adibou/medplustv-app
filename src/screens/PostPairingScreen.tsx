@@ -119,7 +119,7 @@ export default function PostPairingScreen() {
                     </Text>
                     {fetchError && (
                         <Text style={styles.warning}>
-                            (La playlist n'a pas pu être récupérée pour le moment, la lecture par
+                            (La playlist n&apos;a pas pu être récupérée pour le moment, la lecture par
                             défaut sera utilisée en attendant.)
                         </Text>
                     )}
